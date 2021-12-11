@@ -2,15 +2,23 @@ package br.com.notafiscal.nfenfce;
 
 import br.com.swconsultoria.certificado.CertificadoService;
 import br.com.swconsultoria.certificado.exception.CertificadoException;
+import br.com.swconsultoria.impressao.service.ImpressaoService;
+import br.com.swconsultoria.impressao.util.ImpressaoUtil;
 import br.com.swconsultoria.nfe.Nfe;
 import br.com.swconsultoria.nfe.dom.ConfiguracoesNfe;
 import br.com.swconsultoria.nfe.dom.enuns.DocumentoEnum;
 import br.com.swconsultoria.nfe.schema_4.enviNFe.*;
 import br.com.swconsultoria.nfe.util.ChaveUtil;
 import br.com.swconsultoria.nfe.util.ConstantesUtil;
+import br.com.swconsultoria.nfe.util.RetornoUtil;
 import br.com.swconsultoria.nfe.util.XmlNfeUtil;
+import lombok.extern.slf4j.Slf4j;
+import net.sf.jasperreports.engine.JRException;
+import org.xml.sax.SAXException;
 
+import javax.xml.parsers.ParserConfigurationException;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -18,7 +26,9 @@ import java.util.Random;
 
 import static br.com.swconsultoria.nfe.dom.enuns.AmbienteEnum.HOMOLOGACAO;
 import static br.com.swconsultoria.nfe.dom.enuns.EstadosEnum.SC;
+import static br.com.swconsultoria.nfe.dom.enuns.StatusEnum.LOTE_EM_PROCESSAMENTO;
 
+@Slf4j
 public class Teste {
 
     public static void main(String[] args) {
@@ -50,6 +60,8 @@ public class Teste {
         cnf = String.format("%08d", new Random().nextInt(99999999));
         dataEmissao = LocalDateTime.now();
 
+        String xmlFinal;
+
         // Inicia configurações (certificado digital)
         criaConfiguracoes();
 
@@ -63,7 +75,50 @@ public class Teste {
         enviNFe = Nfe.montaNfe(configuracoesNfe, enviNFe, true);
 
         //Envio da nota fical eletronica
-        var tRetEnviNFe = Nfe.enviarNfe(configuracoesNfe, enviNFe, DocumentoEnum.NFE);
+        var retorno = Nfe.enviarNfe(configuracoesNfe, enviNFe, DocumentoEnum.NFE);
+
+        //Faz verificação se o retorno é assincrono e consulta o recibo
+        if (RetornoUtil.isRetornoAssincrono(retorno)) {
+            var tRetConsReciNFe = verificaEnvioAssincrono(retorno);
+            xmlFinal = XmlNfeUtil.criaNfeProc(enviNFe, tRetConsReciNFe.getProtNFe().get(0));
+            RetornoUtil.validaAssincrono(tRetConsReciNFe);
+            log.info("STATUS: " + tRetConsReciNFe.getProtNFe().get(0).getInfProt().getCStat());
+            log.info("PROTOCOLO: " + tRetConsReciNFe.getProtNFe().get(0).getInfProt().getNProt());
+            log.info("XML FINAL: " + xmlFinal);
+        } else {
+            RetornoUtil.validaSincrono(retorno);
+            xmlFinal = XmlNfeUtil.criaNfeProc(enviNFe, retorno.getProtNFe());
+            log.info("STATUS: " + retorno.getProtNFe().getInfProt().getCStat());
+            log.info("PROTOCOLO: " + retorno.getProtNFe().getInfProt().getNProt());
+            log.info("XML FINAL: " + xmlFinal);
+        }
+
+        getEfetuarImpressaoNFe(xmlFinal);
+    }
+
+    private static void getEfetuarImpressaoNFe(String xmlFinal) throws JRException, ParserConfigurationException, IOException, SAXException {
+        var impressao = ImpressaoUtil.impressaoPadraoNFe(xmlFinal);
+        ImpressaoService.impressaoPdfArquivo(impressao, "/home/wesley/Documents/wesley/nfe-teste.pdf");
+    }
+
+    private static br.com.swconsultoria.nfe.schema_4.retConsReciNFe.TRetConsReciNFe verificaEnvioAssincrono(TRetEnviNFe retorno) throws Exception {
+        var recibo = retorno.getInfRec().getNRec();
+        int tentativa = 1;
+        br.com.swconsultoria.nfe.schema_4.retConsReciNFe.TRetConsReciNFe retornoConsulta = null;
+        while (true) {
+            retornoConsulta = Nfe.consultaRecibo(configuracoesNfe, recibo, DocumentoEnum.NFE);
+            if (retornoConsulta.getCStat().equals(LOTE_EM_PROCESSAMENTO.getCodigo())) {
+                Thread.sleep(1000);
+                tentativa++;
+                if (tentativa > 10) {
+                    // Salvar o recibo no banco de dados e consultar posteriormente
+                    throw new Exception("Lote em processamento. Agarde um tempo e tente novamente.");
+                }
+            } else {
+                break;
+            }
+        }
+        return retornoConsulta;
     }
 
     private static void montaChaveNFe(ConfiguracoesNfe configuracoesNfe) {
@@ -234,12 +289,11 @@ public class Teste {
         produto.setNCM("27101932");
         produto.setCEST("0600500");
         produto.setIndEscala("S");
-        produto.setCFOP("5405");
+        produto.setCFOP("6405");
         produto.setUCom("UN");
         produto.setQCom("1");
         produto.setVUnCom("10");
         produto.setVProd("10.00");
-
         produto.setCEANTrib("SEM GTIN");
         produto.setUTrib("UN");
         produto.setQTrib("1");
@@ -251,7 +305,7 @@ public class Teste {
 
     private static TNFe.InfNFe.Dest montaDestinatario() {
         var dest = new TNFe.InfNFe.Dest();
-        dest.setXNome("Nome da Empresa");
+        dest.setXNome("NF-E EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO - SEM VALOR FISCAL");
         dest.setCNPJ("10732644000128");
         dest.setIE("104519304");
         dest.setIndIEDest("1");
