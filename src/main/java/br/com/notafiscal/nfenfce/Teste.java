@@ -4,8 +4,10 @@ import br.com.swconsultoria.certificado.CertificadoService;
 import br.com.swconsultoria.certificado.exception.CertificadoException;
 import br.com.swconsultoria.nfe.Nfe;
 import br.com.swconsultoria.nfe.dom.ConfiguracoesNfe;
+import br.com.swconsultoria.nfe.dom.enuns.DocumentoEnum;
 import br.com.swconsultoria.nfe.schema_4.enviNFe.*;
 import br.com.swconsultoria.nfe.util.ChaveUtil;
+import br.com.swconsultoria.nfe.util.ConstantesUtil;
 import br.com.swconsultoria.nfe.util.XmlNfeUtil;
 
 import java.io.FileNotFoundException;
@@ -16,7 +18,6 @@ import java.util.Random;
 
 import static br.com.swconsultoria.nfe.dom.enuns.AmbienteEnum.HOMOLOGACAO;
 import static br.com.swconsultoria.nfe.dom.enuns.EstadosEnum.SC;
-import static br.com.swconsultoria.nfe.util.ConstantesUtil.VERSAO.NFE;
 
 public class Teste {
 
@@ -49,11 +50,20 @@ public class Teste {
         cnf = String.format("%08d", new Random().nextInt(99999999));
         dataEmissao = LocalDateTime.now();
 
+        // Inicia configurações (certificado digital)
         criaConfiguracoes();
+
+        // Inicia a chave da nota fiscal
         montaChaveNFe(configuracoesNfe);
 
+        // Cria dados da nota fical
         var enviNFe = criaEnviNFe();
+
+        //Efetua assinatura e validação
         enviNFe = Nfe.montaNfe(configuracoesNfe, enviNFe, true);
+
+        //Envio da nota fical eletronica
+        var tRetEnviNFe = Nfe.enviarNfe(configuracoesNfe, enviNFe, DocumentoEnum.NFE);
     }
 
     private static void montaChaveNFe(ConfiguracoesNfe configuracoesNfe) {
@@ -70,11 +80,12 @@ public class Teste {
 
     private static TEnviNFe criaEnviNFe() {
         var enviNFe = new TEnviNFe();
+        enviNFe.setVersao(ConstantesUtil.VERSAO.NFE);
+        enviNFe.setIdLote("1");
+        enviNFe.setIndSinc("1");
+
         var nfe = new TNFe();
-
-        montaInfNFe();
-
-        //nfe.setInfNFe();
+        nfe.setInfNFe(montaInfNFe());
 
         enviNFe.getNFe().add(nfe);
 
@@ -85,7 +96,7 @@ public class Teste {
         var infNFe = new TNFe.InfNFe();
 
         infNFe.setId(chaveUtil.getChaveNF());
-        infNFe.setVersao(NFE);
+        infNFe.setVersao(ConstantesUtil.VERSAO.NFE);
         infNFe.setIde(montaIde());
         infNFe.setEmit(montaEmitente());
         infNFe.setDest(montaDestinatario());
@@ -102,12 +113,13 @@ public class Teste {
     private static TNFe.InfNFe.Total montaTotal() {
         var total = new TNFe.InfNFe.Total();
         var icmsTot = new TNFe.InfNFe.Total.ICMSTot();
-        icmsTot.setVBC("0.00");
-        icmsTot.setVICMS("0.00");
+        icmsTot.setVBC("10.00");
+        icmsTot.setVICMS("1.00");
         icmsTot.setVICMSDeson("0.00");
         icmsTot.setVFCP("0.00");
         icmsTot.setVBCST("0.00");
         icmsTot.setVST("0.00");
+        icmsTot.setVFCPST("0.00");
         icmsTot.setVFCPSTRet("0.00");
         icmsTot.setVProd("10.00");
         icmsTot.setVFrete("0.00");
@@ -197,18 +209,19 @@ public class Teste {
 
         cofins.setCOFINSAliq(cofinsAliq);
 
-        //imposto.getContent().add(new ObjectFactory().createTNFeInfNFeDetImpostoPIS(cofins));
+        imposto.getContent().add(new ObjectFactory().createTNFeInfNFeDetImpostoCOFINS(cofins));
     }
 
     private static void criaImpostoIcms(TNFe.InfNFe.Det.Imposto imposto) {
         var icms = new TNFe.InfNFe.Det.Imposto.ICMS();
-        var icms60 = new TNFe.InfNFe.Det.Imposto.ICMS.ICMS60();
-        icms60.setOrig("0");
-        icms60.setCST("60");
-        icms60.setVBCSTRet("0.00");
-        icms60.setPST("0.00");
-
-        icms.setICMS60(icms60);
+        var icms00 = new TNFe.InfNFe.Det.Imposto.ICMS.ICMS00();
+        icms00.setOrig("0");
+        icms00.setModBC("0");
+        icms00.setCST("00");
+        icms00.setVBC("10.00");
+        icms00.setPICMS("10");
+        icms00.setVICMS("1.00");
+        icms.setICMS00(icms00);
         imposto.getContent().add(new ObjectFactory().createTNFeInfNFeDetImpostoICMS(icms));
     }
 
@@ -309,29 +322,3 @@ public class Teste {
         configuracoesNfe = ConfiguracoesNfe.criarConfiguracoes(SC, HOMOLOGACAO, certificado, "/home/wesley/Documents/wesley/schemas");
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
